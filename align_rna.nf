@@ -24,8 +24,8 @@ copyHelper = new CopyHelper(params.dataDir, params.printCopyMsgs)
 // pair identifier.
 readPairs = ChannelUtil.createFilePairChannel(
         params.runID,
-        Channel.fromPath([params.dataDir, 'fastq', 'original', '*_{R,}1.fastq.gz'].join(File.separator)),
-        Channel.fromPath([params.dataDir, 'fastq', 'original', '*_{R,}2.fastq.gz'].join(File.separator)),
+        Channel.fromPath([params.dataDir, 'fastq', 'original', '*_1.fastq.gz'].join(File.separator)),
+        Channel.fromPath([params.dataDir, 'fastq', 'original', '*_2.fastq.gz'].join(File.separator)),
         )
 
 // Genome file.
@@ -59,8 +59,6 @@ process runFastQCOriginal {
 }
 
 copyHelper.copyFiles(fastqcOutputOriginal, 'reports/fastqc-original');
-
-System.exit(0);
 
 // --------------------------------------------------------------------------
 // Step 1b) Run adapter trimming

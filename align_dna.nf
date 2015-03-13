@@ -81,7 +81,14 @@ process runTrimming {
     """
     set -x
     # call Skewer
-    skewer -x ${params.skewer.adaptersR1} -y ${params.skewer.adaptersR2} -m pe -z -t ${params.skewer.cpus} ${readL} ${readR}
+    skewer \\
+      -x ${params.skewer.adaptersR1} \\
+      -y ${params.skewer.adaptersR2} \\
+      -m pe \\
+      -z \\
+      -t ${params.skewer.cpus} \\
+      ${readL} \\
+      ${readR}
     # compute name of left/right Skewer result file
     NAMEBASE=${readL}
     LEFT=\${NAMEBASE%.gz}-trimmed-pair1.fastq.gz
@@ -165,7 +172,9 @@ process runReadMapping {
         ${genomeFile} \\
         <(zcat ${readL.join(" ")}) \\
         <(zcat ${readR.join(" ")}) \\
-        | samblaster | samtools view -u -Sb - | samtools sort - ${runID}
+        | samblaster \\
+        | samtools view -u -Sb - \\
+        | samtools sort - ${runID}
     samtools index ${runID}.bam
     """
 }

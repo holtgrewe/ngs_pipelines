@@ -7,7 +7,7 @@ import PathUtil
 import ParamsHelper
 
 // ---------------------------------------------------------------------------
-// Read preprocessing and alignment for DNA (WES or WGS) reads.
+// Read preprocessing and alignment for RNA-seq reads
 // ---------------------------------------------------------------------------
 
 if (params.verbose)
@@ -28,8 +28,9 @@ readPairs = ChannelUtil.createFilePairChannel(
         Channel.fromPath([params.dataDir, 'fastq', 'original', '*_2.fastq.gz'].join(File.separator)),
         )
 
-// Genome file.
+// Genome and index files.
 genomeFile = file(params.genome)
+indexFileSTAR = file(params.indexSTAR)
 
 // Duplicate the read pairs into one queue for runFastQCOriginal
 // and runTrimming.
@@ -150,31 +151,55 @@ jointBams = readPairsRunMapping.map{f -> [f[0], f[1], f[2]] }.groupTuple()
 // The alignments are written to the temporary files alignment.bam. These
 // BAM files are already sorted.
 process runReadMapping {
-    cpus params.bwa.cpus
-    module 'bwa/0.7.12'
+    cpus params.star.cpus
+    module 'star/2.4.0j'
     module 'samtools/1.2'
     module 'samblaster/0.1.21'
 
     input:
-    genomeFile
+    indexFileSTAR
     set runID, readL, readR from jointBams
 
     output:
     file { "${runID}.bam*" } into bamFilesOut
     set runID, file { "${runID}.bam" }, file { "${runID}.bam.bai" } into bamFiles
+    set file('out.d/Log.*') into starLogFiles
 
     script:
     """
     set -x
-    bwa mem \\
-        -R '@RG\tID:${runID}\tSM:${runID}\tPL:${params.runPlatform}' \\
-        -t ${params.bwa.cpus} \\
-        ${genomeFile} \\
-        <(zcat ${readL.join(" ")}) \\
-        <(zcat ${readR.join(" ")}) \\
-        | samblaster \\
-        | samtools view -u -Sb - \\
+    mkdir -p out.d
+    # Run the STAR RNA-seq aligner.
+    #
+    # Using the default ENCODE standard settings from the manual below
+    # (--outFilterType..--alignMatesGapMax). Also, using Cufflink/Cuffdiff
+    # default options (--outSAMstrandField..--outFilterIntronMotifs).
+    # Further, we add read groups (--outSAMattrRGline).
+    STAR \\
+        --genomeDir ${indexFileSTAR} \\
+        --runThreadN ${params.star.cpus} \\
+        --readFilesIn \\
+            <(zcat ${readL.join(" ")}) \\
+            <(zcat ${readR.join(" ")}) \\
+        --outFileNamePrefix out.d/ \\
+        --outFilterType BySJout \\
+        --outFilterMultimapNmax 20 \\
+        --alignSJoverhangMin 8 \\
+        --alignSJDBoverhangMin 1 \\
+        --outFilterMismatchNmax 999 \\
+        --outFilterMismatchNoverLmax 0.04 \\
+        --alignIntronMin 20 \\
+        --alignIntronMax 1000000 \\
+        --alignMatesGapMax 1000000 \\
+        --outSAMstrandField intronMotif \\
+        --outFilterIntronMotifs RemoveNoncanonical \\
+        --outSAMattrRGline "ID:${runID}" "SM:${runID}" "PL:${params.runPlatform}"
+    # Mask duplicates, sort, convert to BAM.
+    samblaster \\
+        -i out.d/Aligned.out.sam \\
+        | samtools view -Sbu - \\
         | samtools sort - ${runID}
+    # Index resulting BAM file
     samtools index ${runID}.bam
     """
 }
@@ -184,3 +209,4 @@ process runReadMapping {
  bamFilesForVariantCalling) = bamFiles.separate(3) { x -> [ x, x, x ] }
 
 copyHelper.copyFiles(bamFilesOut, 'bam')
+copyHelper.copyFiles(starLogFiles, 'reports/alignment')

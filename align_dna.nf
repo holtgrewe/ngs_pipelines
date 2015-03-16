@@ -28,8 +28,8 @@ readPairs = ChannelUtil.createFilePairChannel(
         Channel.fromPath([params.dataDir, 'fastq', 'original', '*_{R,}2.fastq.gz'].join(File.separator)),
         )
 
-// Genome file.
-genomeFile = file(params.genome)
+// Genome and index files.
+indexFileBWA = file(params.indexBWA)
 
 // Duplicate the read pairs into one queue for runFastQCOriginal
 // and runTrimming.
@@ -158,7 +158,7 @@ process runReadMapping {
     module 'samblaster/0.1.21'
 
     input:
-    genomeFile
+    indexFileBWA
     set runID, readL, readR from jointBams
 
     output:
@@ -171,7 +171,7 @@ process runReadMapping {
     bwa mem \\
         -R '@RG\tID:${runID}\tSM:${runID}\tPL:${params.runPlatform}' \\
         -t ${params.bwa.cpus} \\
-        ${genomeFile} \\
+        ${indexFileBWA} \\
         <(zcat ${readL.join(" ")}) \\
         <(zcat ${readR.join(" ")}) \\
         | samblaster \\

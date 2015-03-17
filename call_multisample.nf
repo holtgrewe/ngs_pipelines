@@ -75,10 +75,8 @@ process runFreebayes {
         parallel -t -k -j ${params.freebayes.cpus} run_freebayes :::: \\
         <(fasta_generate_regions.py ${genomeFile}.fai \${WINDOW_LEN} || true) \\
         | vcffirstheader \\
-        > ${poolID}.vcf
-
-    # Compress VCF file (TODO: move into pipe above)
-    bgzip ${poolID}.vcf
+        | bgzip -c /dev/stdin \\
+        > ${poolID}.vcf.gz
 
     # Index the resulting file using tabix
     tabix ${poolID}.vcf.gz

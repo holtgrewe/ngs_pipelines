@@ -10,6 +10,8 @@ import ParamsHelper
 // Variant calling from multiple samples.
 // ---------------------------------------------------------------------------
 
+// Notes: variant-calling of RNA-seq data does not work with Freebayes
+
 if (params.verbose)
     echo true
 
@@ -29,10 +31,11 @@ genomeFile = file(params.genome)
 // Perform variant calling with Freebayes
 // ---------------------------------------------------------------------------
 
-process runFastQCOriginal {
-    cpus params.fastqc.cpus
-    module 'freebayes/0.9.21'
+process runFreebayes {
+    cpus params.freebayes.cpus
+    module 'freebayes/0.9.20'
     module 'htslib/1.2.1'
+    module 'vcflib/b1e9b3'
 
     input:
     genomeFile
@@ -43,17 +46,43 @@ process runFastQCOriginal {
 
     script:
     """
+    #!/bin/bash
     set -x
+
+    # Run freebayes on a certain region on the genome.
+    #
     # The --min-base-quality and --min-mapping-quality settings come from the
     # Freebayes author https://www.biostars.org/p/85400/#87189
-    freebayes \\
-        --genotype-qualities \\
-        --min-base-quality 3 \\
-        --min-mapping-quality 1 \\
-        -f ${genomeFile} \\
-        ${bamFiles.join(" ")} \\
-        | bgzip -c /dev/stdin \\
-        > ${poolID}.vcf.gz
+    run_freebayes()
+    {
+        set -x
+        REGION=\$1
+        shift
+        freebayes \\
+            --genotype-qualities \\
+            --min-base-quality 3 \\
+            --min-mapping-quality 1 \\
+            -r \${REGION} \\
+            -f ${genomeFile} \\
+            ${bamFiles.join(" ")}
+    }
+    export -f run_freebayes
+
+    # The length of the windows to use for parallelization.
+    WINDOW_LEN=100000
+
+    /usr/bin/time \\
+        parallel -t -k -j ${params.freebayes.cpus} run_freebayes :::: \\
+        <(fasta_generate_regions.py ${genomeFile}.fai \${WINDOW_LEN} || true) \\
+        | vcffirstheader \\
+        > ${poolID}.vcf
+
+    # Compress VCF file (TODO: move into pipe above)
+    bgzip ${poolID}.vcf
+
+    # Index the resulting file using tabix
     tabix ${poolID}.vcf.gz
     """
 }
+
+copyHelper.copyFiles(vcfFilesOut, 'vcf');

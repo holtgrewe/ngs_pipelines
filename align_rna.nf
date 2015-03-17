@@ -162,8 +162,8 @@ process runReadMapping {
 
     output:
     file { "${runID}.bam*" } into bamFilesOut
-    set runID, file { "${runID}.bam" }, file { "${runID}.bam.bai" } into bamFiles
     set file('out.d/Log.*') into starLogFiles
+    set runID, file { "${runID}.bam" } into bamFilesPreSplitting
 
     script:
     """
@@ -198,15 +198,55 @@ process runReadMapping {
     samblaster \\
         -i out.d/Aligned.out.sam \\
         | samtools view -Sbu - \\
-        | samtools sort - ${runID}
+        | samtools sort -@ ${params.star.cpus} - ${runID}
     # Index resulting BAM file
     samtools index ${runID}.bam
     """
 }
 
-(bamFilesForCoverage,
- bamFilesForQualimap,
- bamFilesForVariantCalling) = bamFiles.separate(3) { x -> [ x, x, x ] }
-
 copyHelper.copyFiles(bamFilesOut, 'bam')
 copyHelper.copyFiles(starLogFiles, 'reports/alignment')
+
+/** DOES NOT HELP CALLING WITH FREEBAYES
+// --------------------------------------------------------------------------
+// Step 3) Split reads at N in CIGAR string
+// --------------------------------------------------------------------------
+
+// For RNA-seq, it is worth performing a splitting at the Ns in CIGAR reads
+// after the alignment as described in [1].  Base-callers such as Freebayes
+// get confused otherwise.
+//
+// [1] https://www.broadinstitute.org/gatk/guide/article?id=3891
+
+process runReadSplittingAtNs {
+    module 'gatk/3.3-0'
+
+    input:
+    genomeFile
+    set runID, bamFile from bamFilesPreSplitting
+
+    output:
+    file { "${runID}.splitAtN.bam*" } into bamFilesAfterSplitting
+    file { 'log/*' } into splitAtNLogFiles
+
+    script:
+    """
+    mkdir log
+    java org.broadinstitute.gatk.engine.CommandLineGATK \\
+        -T SplitNCigarReads \\
+        -R ${genomeFile} \\
+        -I ${bamFile} \\
+        -o ${runID}.splitAtN.bam \\
+        -rf ReassignOneMappingQuality \\
+        -RMQF 255 \\
+        -RMQT 60 \\
+        -U ALLOW_N_CIGAR_READS \\
+        > log/SplitNCigarReads.stdout \\
+        2> log/SplitNCigarReads.stderr
+    mv ${runID}.splitAtN.bai ${runID}.splitAtN.bam.bai
+    """
+}
+
+copyHelper.copyFiles(bamFilesAfterSplitting, 'bam')
+copyHelper.copyFiles(splitAtNLogFiles, 'reports/split_at_n')
+*/

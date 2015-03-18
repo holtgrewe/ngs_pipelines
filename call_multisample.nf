@@ -42,6 +42,7 @@ process runFreebayes {
     set poolID, bamFiles from bamFilesIn
 
     output:
+    file { "${params.poolID}.vcf"} into vcfFilesForCutting
     file { "${params.poolID}.vcf*" } into vcfFilesOut
 
     script:
@@ -84,3 +85,48 @@ process runFreebayes {
 }
 
 copyHelper.copyFiles(vcfFilesOut, 'vcf');
+
+// ---------------------------------------------------------------------------
+// Cut down the VCF files to exons
+// ---------------------------------------------------------------------------
+
+process cutVCFToExons {
+    module 'bedtools2/2.23.0'
+
+    input:
+    vcfFilesForCutting into vcfFile
+    file (params.exonsUCSC) into exonsUCSC
+    file (params.exonsCCDS) into exonsCCDS
+
+    output:
+    file { "out.d/*" } into cutVCFFiles
+
+    script:
+    """
+    set -x
+    mkdir -p out.d
+
+    FILENAME=\$(basename ${vcfFile} .vcf.gz)
+
+    bedtools \\
+        intersect \\
+        -header \\
+        -a ${vcfFile} \\
+        -b ${exonsUCSC} \\
+        | bgzip -c /dev/stdin \\
+        > out.d/\${FILENAME}.UCSC.vcf.gz
+
+    bedtools \\
+        intersect \\
+        -header \\
+        -a ${vcfFile} \\
+        -b ${exonsCCDS} \\
+        | bgzip -c /dev/stdin \\
+        > out.d/\${FILENAME}.CCDS.vcf.gz
+
+    tabix out.d/\${FILENAME}.UCSC.vcf.gz
+    tabix out.d/\${FILENAME}.CCDS.vcf.gz
+    """
+}
+
+copyHelper.copyFiles(cutVCFFiles, 'vcf');

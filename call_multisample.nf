@@ -27,6 +27,10 @@ bamFilesIn = Channel.from(params.inputBam.split(':')).map { [params.poolID, file
 // Get handle to genome file.
 genomeFile = file(params.genome)
 
+// Get handle to BED files.
+bedExonsUCSCFile = file(params.exonsUCSC)
+bedExonsCCDSFile = file(params.exonsCCDS)
+
 // ---------------------------------------------------------------------------
 // Perform variant calling with Freebayes
 // ---------------------------------------------------------------------------
@@ -42,8 +46,8 @@ process runFreebayes {
     set poolID, bamFiles from bamFilesIn
 
     output:
-    file { "${params.poolID}.vcf"} into vcfFilesForCutting
-    file { "${params.poolID}.vcf*" } into vcfFilesOut
+    file { "${params.poolID}.vcf.gz"} into vcfFilesForCutting
+    file { "${params.poolID}.vcf.gz*" } into vcfFilesOut
 
     script:
     """
@@ -94,9 +98,9 @@ process cutVCFToExons {
     module 'bedtools2/2.23.0'
 
     input:
-    vcfFilesForCutting into vcfFile
-    file (params.exonsUCSC) into exonsUCSC
-    file (params.exonsCCDS) into exonsCCDS
+    file vcfFile from vcfFilesForCutting
+    bedExonsUCSCFile
+    bedExonsCCDSFile
 
     output:
     file { "out.d/*" } into cutVCFFiles
@@ -112,7 +116,7 @@ process cutVCFToExons {
         intersect \\
         -header \\
         -a ${vcfFile} \\
-        -b ${exonsUCSC} \\
+        -b ${bedExonsUCSCFile} \\
         | bgzip -c /dev/stdin \\
         > out.d/\${FILENAME}.UCSC.vcf.gz
 
@@ -120,7 +124,7 @@ process cutVCFToExons {
         intersect \\
         -header \\
         -a ${vcfFile} \\
-        -b ${exonsCCDS} \\
+        -b ${bedExonsCCDSFile} \\
         | bgzip -c /dev/stdin \\
         > out.d/\${FILENAME}.CCDS.vcf.gz
 
